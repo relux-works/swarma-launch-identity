@@ -9,6 +9,8 @@ import (
 	"testing"
 )
 
+const checkFrameName = "syn1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 // The helper runs the real main in a disposable subprocess, with no launcher
 // or credentials. Only test code starts children; the utility never does.
 func TestHelperProcess(t *testing.T) {
@@ -79,6 +81,70 @@ func TestProcess(t *testing.T) {
 		if err != nil || len(entries) != 0 {
 			t.Fatal("utility changed disposable working directory")
 		}
+	}
+}
+
+// The dispatcher routes check-frame without calling derive's environment
+// lookup; a planted lookup callback detects any accidental call.
+func TestCheckFrameDispatchDoesNotLookup(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		code  int
+		diag  string
+	}{
+		{"valid control", checkFrameName + "\n", 0, ""},
+		{"invalid frame", "partial", 1, "ERR E_FRAME\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			lookup := func(string) (string, bool) {
+				calls++
+				return "fixture-lookup-plant", true
+			}
+			var stdout, stderr bytes.Buffer
+			exit := runCommand([]string{"check-frame", "--expected", checkFrameName}, lookup, strings.NewReader(tc.input), &stdout, &stderr)
+			if exit != tc.code || calls != 0 || stderr.String() != tc.diag {
+				t.Fatal("check-frame dispatch called the ambient lookup or returned the wrong refusal")
+			}
+			if tc.code == 0 {
+				if stdout.Len() != 69 || stdout.String() != checkFrameName {
+					t.Fatal("process dispatch success did not emit the exact 69-byte name")
+				}
+			} else if stdout.Len() != 0 {
+				t.Fatal("non-output refusal wrote stdout")
+			}
+		})
+	}
+}
+
+// The real command path also ignores deliberately conflicting public identity
+// environment entries. This does not qualify any caller or Curator route.
+func TestCheckFrameProcess(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binary, "-test.run=^TestHelperProcess$", "--", "check-frame", "--expected", checkFrameName)
+	cmd.Dir = dir
+	cmd.Env = []string{"BRIDGE_TEST_HELPER=1", "A2A_AGENT=explicit-fixture", "SWARMA_LAUNCH_IDENTITY=conflicting-fixture"}
+	cmd.Stdin = strings.NewReader(checkFrameName + "\n")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatal("check-frame process refused its valid public frame")
+	}
+	if stdout.Len() != 69 || stdout.String() != checkFrameName || stderr.Len() != 0 {
+		t.Fatal("check-frame process output was not exact")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("check-frame process changed its disposable working directory")
 	}
 }
 

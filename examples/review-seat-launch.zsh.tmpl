@@ -1,0 +1,61 @@
+#!/bin/zsh
+# Public example only: a launching manager copies this file and replaces every
+# value placeholder below with a shell-quoted literal from its reviewed
+# configuration. No manager values are stored in this repository.
+#
+# Placeholders:
+#   __HOST_ID__              stable public host ID
+#   __PROJECT_ID__           stable public project ID
+#   __PROFILE_ID__           stable public profile ID
+#   __EXPECTED_NAME__        reviewed syn1: name for that exact ID tuple
+#   __UTILITY_PATH__         pinned swarma-launch-identity executable path
+#   __SEAT_DIRECTORY__       manager-owned seat working directory
+#   __PROMPT_FILE__          manager-owned prompt file passed as the final arg
+#   __CURATOR_COMMAND__      admitted Curator command path
+#   __CURATOR_ARGUMENTS__    individually quoted zsh argv words for the
+#                            admitted native Codex route, excluding the prompt
+#
+# Start it through the manager's clean `env -i` tmux session command. The
+# explicit cleanup below remains a second boundary for the listed variables.
+
+launch_review_seat() {
+  emulate -L zsh
+  setopt pipefail
+
+  unset CODEX_HOME 2>/dev/null || exit 1
+  unset CODEX_THREAD_ID 2>/dev/null || exit 1
+  unset CLAUDE_CONFIG_DIR 2>/dev/null || exit 1
+  unset CLAUDECODE 2>/dev/null || exit 1
+  unset CLAUDE_CODE_ENTRYPOINT 2>/dev/null || exit 1
+  unset A2A_SESSION_ID 2>/dev/null || exit 1
+  unset A2A_PROFILE 2>/dev/null || exit 1
+  unset A2A_CONNECTION 2>/dev/null || exit 1
+  unset A2A_CONNECTION_FINGERPRINT 2>/dev/null || exit 1
+  unset A2A_AGENT 2>/dev/null || exit 1
+  unset A2A_CONFIG_DIR 2>/dev/null || exit 1
+  unset ANTHROPIC_API_KEY 2>/dev/null || exit 1
+  unset TASK_BOARD_RUN_ID 2>/dev/null || exit 1
+
+  cd __SEAT_DIRECTORY__ || exit 1
+
+  local validated_identity
+  validated_identity=$(
+    __UTILITY_PATH__ derive \
+      --host-id __HOST_ID__ \
+      --project-id __PROJECT_ID__ \
+      --profile-id __PROFILE_ID__ 2>/dev/null |
+      __UTILITY_PATH__ check-frame --expected __EXPECTED_NAME__ 2>/dev/null
+  ) || exit 1
+
+  export SWARMA_LAUNCH_IDENTITY="$validated_identity"
+
+  local -a curator_argv
+  curator_argv=(
+    __CURATOR_COMMAND__
+    __CURATOR_ARGUMENTS__
+    "$(cat __PROMPT_FILE__)"
+  )
+  exec "${curator_argv[@]}"
+}
+
+launch_review_seat

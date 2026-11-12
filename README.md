@@ -75,17 +75,46 @@ Run test suites serially. Before every test invocation, `pgrep -x Runner.Worker`
 must print nothing. If it prints a PID, wait two minutes and check again before
 running tests. Never stop another process to clear this guard.
 
+`check-frame` validates raw `derive` output against a separately reviewed
+expected name. Run exactly:
+
+```sh
+bin/swarma-launch-identity check-frame --expected NAME
+```
+
+`NAME` is `syn1:` plus 64 lowercase hexadecimal digits. The command reads at
+most 71 bytes and accepts only `NAME` plus one LF (70 bytes), followed by EOF.
+Success exits 0, writes `NAME` without LF (69 bytes), and leaves stderr empty.
+Refusals write fixed `ERR CODE` diagnostics: E_USAGE/2 for command-shape
+errors; E_ID, E_INPUT, E_FRAME, E_OUTPUT, or E_INTERNAL/1 for malformed
+expected names, input failures, frame mismatches, output failures, or
+unexpected pre-output panics. Other than E_OUTPUT, refusals leave stdout empty.
+A short or failed output write may leave partial bytes on stdout; discard all
+captured output on any nonzero exit. The command does not read the environment
+or access files, children, networks, credentials, or homes.
+
+The reviewed example `examples/review-seat-launch.zsh.tmpl` shows a manager
+capturing `derive | check-frame` in a clean `env -i` tmux launch, then exporting
+the validated public name before its configured Curator command. A manager
+copies the example and fills its documented placeholders with shell-quoted
+literal IDs, expected name, utility path, seat and prompt paths, and command
+path and arguments. The example and its fixture do not qualify a real Curator
+route.
+
 | Tool and purpose | Exact command | Output location |
 | --- | --- | --- |
 | Go compiler: build the CLI | `go build -o bin/swarma-launch-identity ./cmd/swarma-launch-identity` | `bin/swarma-launch-identity` |
+| Frame checker: validate one exact public frame | `bin/swarma-launch-identity check-frame --expected NAME` | Validated name on stdout without LF |
+| Caller example: reviewed zsh launch template | `examples/review-seat-launch.zsh.tmpl` | Copy and fill its documented placeholders in the manager-owned launch configuration |
 | Go vet: static checks | `GOFLAGS=-mod=mod GOPROXY=off go vet ./...` | Diagnostics on terminal stderr |
 | Go tests: serial contract and race checks | `GOPROXY=off go test -p 1 -race -count=1 ./...` | Verdicts on terminal stdout/stderr |
 | Go formatter: format sources | `gofmt -w identity.go identity_test.go resources_test.go internal/cli/cli.go internal/cli/cli_test.go cmd/swarma-launch-identity/main.go cmd/swarma-launch-identity/main_test.go` | Listed source files |
 
 Tests pin bytes and names, validate each refusal with valid controls, check
-precedence and byte limits, instrument the two environment reads and single
-output attempt, plant a diagnostic leak control, constrain production imports,
-and exercise real process frames in disposable directories. These checks do
-not execute a real launcher or qualify a manager configuration.
+precedence and byte limits, bound `check-frame` input to 71 bytes, instrument
+the derive environment reads and bounded output attempts, plant diagnostic and
+forbidden-lookup controls, constrain production imports, and exercise process
+frames in disposable directories. These checks do not execute a real launcher
+or qualify a manager configuration.
 
 Licensed under Apache-2.0; see LICENSE and NOTICE.

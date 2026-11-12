@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"syscall"
 
@@ -8,7 +9,14 @@ import (
 )
 
 func main() {
-	os.Exit(cli.Run(os.Args[1:], os.LookupEnv, outputWriter{}, os.Stderr))
+	os.Exit(runCommand(os.Args[1:], os.LookupEnv, os.Stdin, outputWriter{}, os.Stderr))
+}
+
+func runCommand(args []string, lookup cli.Lookup, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "check-frame" {
+		return cli.CheckFrame(args, stdin, stdout, stderr)
+	}
+	return cli.Run(args, lookup, stdout, stderr)
 }
 
 // Direct stdout writes return EPIPE to the command instead of the special

@@ -40,3 +40,20 @@ grants no credential access and does not assign stable IDs, provision accounts,
 write homes, start sessions, implement resume persistence or prove receiving
 route safety. The manager separately owns namespace separation, stable mapping,
 the same-UID trust limit, home persistence and caller integration acceptance.
+
+## Caller template
+
+A launching manager may copy `examples/review-seat-launch.zsh.tmpl` into its
+own reviewed launch configuration. Replace every documented value placeholder
+with a shell-quoted literal stable ID, matching expected name, pinned utility
+path, seat and prompt path; replace the command placeholder with the admitted
+Curator command path. Fill the argument placeholder with separately quoted
+argv words. Keep the clean `env -i` tmux start and the explicit cleanup list.
+The example captures
+`derive | check-frame`, stops on any nonzero pipeline status, and exports
+`SWARMA_LAUNCH_IDENTITY` only after frame validation succeeds.
+
+The template is an example and does not authenticate a name, access a
+credential, or qualify the selected Curator receiving route. A manager must
+perform its own route and exact-value checks before real use; same-UID processes
+remain within the existing trust boundary.
