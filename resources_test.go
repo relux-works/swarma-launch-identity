@@ -93,43 +93,52 @@ func TestResourceBoundary(t *testing.T) {
 }
 
 // admittedEnvironmentLookupSeam names the only permitted ambient read:
-// os.LookupEnv passed by main in cmd/swarma-launch-identity/main.go to
-// runCommand's lookup parameter.
+// os.LookupEnv passed by the unique receiver-free package main in
+// cmd/swarma-launch-identity/main.go to runCommand's lookup parameter.
 func admittedEnvironmentLookupSeam(path string, f *ast.File) *ast.SelectorExpr {
-	if path != entrypointFile {
+	if path != entrypointFile || f.Name == nil || f.Name.Name != "main" {
 		return nil
 	}
+	var entrypoint *ast.FuncDecl
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "main" || fn.Body == nil {
+		if !ok || fn.Name.Name != "main" {
 			continue
 		}
-		if len(fn.Body.List) != 1 {
+		// Only one receiver-free declaration may represent the package entrypoint.
+		if fn.Recv != nil || entrypoint != nil {
 			return nil
 		}
-		stmt, ok := fn.Body.List[0].(*ast.ExprStmt)
-		if !ok {
-			return nil
-		}
-		exitCall, ok := stmt.X.(*ast.CallExpr)
-		if !ok || !isPackageCall(exitCall.Fun, "os", "Exit") || len(exitCall.Args) != 1 {
-			return nil
-		}
-		runCall, ok := exitCall.Args[0].(*ast.CallExpr)
-		if !ok || !isFunctionCall(runCall.Fun, "runCommand") || len(runCall.Args) != 5 {
-			return nil
-		}
-		lookup, ok := runCall.Args[1].(*ast.SelectorExpr)
-		if !ok || !isPackageSelector(lookup, "os", "LookupEnv") {
-			return nil
-		}
-		return lookup
+		entrypoint = fn
 	}
-	return nil
+	if entrypoint == nil || entrypoint.Body == nil || entrypoint.Type.Params.NumFields() != 0 ||
+		(entrypoint.Type.Results != nil && entrypoint.Type.Results.NumFields() != 0) {
+		return nil
+	}
+	if len(entrypoint.Body.List) != 1 {
+		return nil
+	}
+	stmt, ok := entrypoint.Body.List[0].(*ast.ExprStmt)
+	if !ok {
+		return nil
+	}
+	exitCall, ok := stmt.X.(*ast.CallExpr)
+	if !ok || !isPackageCall(exitCall.Fun, "os", "Exit") || len(exitCall.Args) != 1 {
+		return nil
+	}
+	runCall, ok := exitCall.Args[0].(*ast.CallExpr)
+	if !ok || !isFunctionCall(runCall.Fun, "runCommand") || len(runCall.Args) != 5 {
+		return nil
+	}
+	lookup, ok := runCall.Args[1].(*ast.SelectorExpr)
+	if !ok || !isPackageSelector(lookup, "os", "LookupEnv") {
+		return nil
+	}
+	return lookup
 }
 
-// TestResourceBoundaryLookupPlant proves the guard admits only main's lookup
-// seam and finds ambient reads planted in dispatch and check-frame code.
+// TestResourceBoundaryLookupPlant preserves the valid entrypoint control while
+// rejecting alternate main declarations and planted ambient reads.
 func TestResourceBoundaryLookupPlant(t *testing.T) {
 	path := entrypointFile
 	source, err := os.ReadFile(path)
@@ -140,6 +149,29 @@ func TestResourceBoundaryLookupPlant(t *testing.T) {
 	if err != nil || admittedEnvironmentLookupSeam(path, file) == nil || hasUnadmittedEnvironmentRead(path, file) {
 		t.Fatal("current entrypoint failed its admitted lookup control")
 	}
+	// A receiver method named main cannot carry the entrypoint lookup exemption.
+	receiverMethodMain := strings.Replace(string(source),
+		"func main() {\n\tos.Exit(runCommand(os.Args[1:], os.LookupEnv, os.Stdin, outputWriter{}, os.Stderr))\n}",
+		"func (outputWriter) main() {\n\tos.Exit(runCommand(os.Args[1:], os.LookupEnv, os.Stdin, outputWriter{}, os.Stderr))\n}\n\nfunc main() {\n\toutputWriter{}.main()\n}", 1)
+	if receiverMethodMain == string(source) {
+		t.Fatal("could not plant the receiver-method entrypoint fixture")
+	}
+	file, err = parser.ParseFile(token.NewFileSet(), path, []byte(receiverMethodMain), 0)
+	if err != nil || admittedEnvironmentLookupSeam(path, file) != nil || !hasUnadmittedEnvironmentRead(path, file) {
+		t.Fatal("resource guard admitted a receiver method named main")
+	}
+
+	// A same-named declaration in another source file cannot inherit the seam.
+	otherPath := "cmd/swarma-launch-identity/other.go"
+	otherMain := `package main
+import "os"
+func main() { _, _ = os.LookupEnv("FORBIDDEN_FIXTURE") }
+`
+	file, err = parser.ParseFile(token.NewFileSet(), otherPath, []byte(otherMain), 0)
+	if err != nil || admittedEnvironmentLookupSeam(otherPath, file) != nil || !hasUnadmittedEnvironmentRead(otherPath, file) {
+		t.Fatal("resource guard admitted main from another source file")
+	}
+
 	marker := `if len(args) > 0 && args[0] == "check-frame" {`
 	planted := strings.Replace(string(source), marker, marker+"\n\t\t_, _ = os.LookupEnv(\"FORBIDDEN_FIXTURE\")", 1)
 	if planted == string(source) {
